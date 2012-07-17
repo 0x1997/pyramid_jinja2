@@ -243,10 +243,16 @@ def _setup_environment(registry):
     domain = settings.get('jinja2.i18n.domain', 'messages')
     extensions = _get_extensions(registry)
     filters = parse_filters(settings.get('jinja2.filters', ''))
+
+    defaults_prefix = 'jinja2.defaults.'
+    defaults_kwargs = {k[len(defaults_prefix):]: v
+                       for k, v in settings.items()
+                       if k.startswith(defaults_prefix)}
     environment = Environment(loader=directory_loader_factory(settings),
                               auto_reload=reload_templates,
                               autoescape=autoescape,
-                              extensions=extensions)
+                              extensions=extensions,
+                              **defaults_kwargs)
     wrapper = GetTextWrapper(domain=domain)
     environment.install_gettext_callables(wrapper.gettext, wrapper.ngettext)
     environment.pyramid_jinja2_extensions = extensions
