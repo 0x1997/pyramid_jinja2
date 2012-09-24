@@ -105,8 +105,6 @@ class Test_renderer_factory(Base, unittest.TestCase):
     def test_with_filters_object(self):
         from pyramid_jinja2 import IJinja2Environment
 
-        def dummy_filter(value): return 'hoge'
-
         self.config.registry.settings.update(
             {'jinja2.directories': self.templates_dir,
              'jinja2.filters': {'dummy': dummy_filter}})
@@ -134,14 +132,6 @@ class Test_renderer_factory(Base, unittest.TestCase):
         self._callFUT(info)
         environ = self.config.registry.getUtility(IJinja2Environment)
         self.assertEqual(environ.filters['dummy'], dummy_filter)
-
-
-class TemplateRenderingErrorTests(unittest.TestCase):
-
-    def test_it(self):
-        from pyramid_jinja2 import TemplateRenderingError
-        error = TemplateRenderingError('foobar.jinja2', 'random message')
-        self.assertEqual(str(error), 'foobar.jinja2: random message')
 
 
 class Jinja2TemplateRendererTests(Base, unittest.TestCase):
@@ -220,6 +210,22 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(result, text_('\nHello föö', 'utf-8'))
 
 
+class TestIntegration2(unittest.TestCase):
+    def setUp(self):
+        import pyramid_jinja2
+        config = testing.setUp()
+        config.add_renderer('.jinja2',
+                            pyramid_jinja2.renderer_factory)
+    
+    def tearDown(self):
+        testing.tearDown()
+    
+    def test_render_relative_to_package(self):
+        from pyramid.renderers import render
+        result = render('templates/helloworld.jinja2', {'a': 1})
+        self.assertEqual(result, text_('\nHello föö', 'utf-8'))
+    
+
 class Test_includeme(unittest.TestCase):
     def test_it(self):
         from pyramid.interfaces import IRendererFactory
@@ -238,15 +244,18 @@ class Test_add_jinja2_assetdirs(unittest.TestCase):
         from pyramid_jinja2 import IJinja2Environment
         import os
         config = testing.setUp()
+        config.package_name = __name__
         config.registry.settings['jinja2.directories'] = 'foobar'
         includeme(config)
         utility = config.registry.getUtility(IJinja2Environment)
-        self.assertEqual([x.split(os.sep)[-1]
-                          for x in utility.loader.searchpath], ['foobar'])
+        self.assertEqual(
+            [x.split(os.sep)[-3:] for x in utility.loader.searchpath],
+            [['pyramid_jinja2', 'tests', 'foobar']])
+
         config.add_jinja2_search_path('grrr')
-        self.assertEqual([x.split(os.sep)[-1]
-                          for x in utility.loader.searchpath],
-                         ['foobar', 'grrr'])
+        self.assertEqual(
+            [x.split(os.sep)[-3:] for x in utility.loader.searchpath],
+            [['pyramid_jinja2', 'tests', 'foobar'], ['pyramid_jinja2', 'tests', 'grrr']])
 
 class Test_get_jinja2_environment(unittest.TestCase):
     def test_it(self):
@@ -256,6 +265,26 @@ class Test_get_jinja2_environment(unittest.TestCase):
         includeme(config)
         self.assertEqual(config.get_jinja2_environment().__class__,
                          Environment)
+
+
+class Test_bytecode_caching(unittest.TestCase):
+    def test_default(self):
+        from pyramid_jinja2 import includeme
+        import jinja2.bccache
+        config = testing.setUp()
+        includeme(config)
+        env = config.get_jinja2_environment()
+        self.assertTrue(isinstance(env.bytecode_cache,
+                                   jinja2.bccache.FileSystemBytecodeCache))
+        self.assertTrue(env.bytecode_cache.directory)
+
+    def test_directory(self):
+        from pyramid_jinja2 import includeme
+        config = testing.setUp()
+        config.registry.settings['jinja2.bytecode_caching_directory'] = '/foobar'
+        includeme(config)
+        env = config.get_jinja2_environment()
+        self.assertEqual(env.bytecode_cache.directory, text_('/foobar'))
 
 
 class TestSmartAssetSpecLoader(unittest.TestCase):
@@ -307,7 +336,7 @@ class TestFileInfo(unittest.TestCase):
         assert fi.uptodate() is False
 
     def test_delay_init(self):
-        from pyramid_jinja2 import FileInfo, TemplateRenderingError
+        from pyramid_jinja2 import FileInfo
 
         class MyFileInfo(FileInfo):
             filename = 'foo.jinja2'
@@ -325,11 +354,6 @@ class TestFileInfo(unittest.TestCase):
         mi = MyFileInfo(text_('nothing good here, move along'))
         mi._delay_init()
         self.assertEqual(mi._contents, mi.data)
-
-        if not PY3:
-
-            mi = MyFileInfo(bytes_('nothing good her\xe9, move along'))
-            self.assertRaises(TemplateRenderingError, mi._delay_init)
 
 
 class GetTextWrapperTests(unittest.TestCase):
@@ -414,6 +438,7 @@ class MiscTests(Base, unittest.TestCase):
         from pyramid_jinja2 import (add_jinja2_extension,
                                     _get_or_build_default_environment)
         self.config.include('pyramid_jinja2')
+        env_before = _get_or_build_default_environment(self.config.registry)
 
         class MockExt(object):
             identifier = 'foobar'
@@ -423,5 +448,6 @@ class MiscTests(Base, unittest.TestCase):
 
         add_jinja2_extension(self.config, MockExt)
 
-        u = _get_or_build_default_environment(self.config.registry)
-        self.assertTrue('foobar' in u.extensions)
+        env_after = _get_or_build_default_environment(self.config.registry)
+        self.assertTrue('foobar' in env_after.extensions)
+        self.assertTrue(env_before is env_after)

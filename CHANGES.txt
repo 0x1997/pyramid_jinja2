@@ -1,9 +1,39 @@
-Next release
-============
+1.4.2 (unreleased)
+==================
+
+- Remove redundant decoding error handling
+  [Domen Kožar]
+
+- Configure bytecode caching by default. Introduce `jinja2.bytecode_caching`
+  and `jinja2.bytecode_caching_directory` settings.
+  [Domen Kožar]
+
+1.4.1 (2012-09-12)
+==================
+
+- Fix brown-bag release
+  [Domen Kožar]
+
+
+1.4 (2012-09-12)
+================
+
+- Correctly resolve relative search paths passed to ``add_jinja2_search_path``
+  and ``jinja2.directories``
+  [Domen Kožar]
+
+- #34: Don't recreate ``jinja2.Environment`` for ``add_jinja2_extension``
+  [Domen Kožar]
+
+- Drop Python 2.5 compatibility
+  [Domen Kožar]
 
 - Addition of ``static_url`` filter.
 
 - Add ``dev`` and ``docs`` setup.py aliases (ala Pyramid).
+
+- Changed template loading relative to package calling the renderer so 
+  it works like the Chameleon template loader.
 
 1.3 (2011-12-14)
 ================

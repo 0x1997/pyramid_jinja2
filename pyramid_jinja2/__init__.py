@@ -7,12 +7,12 @@ from zope.interface import (
     Interface,
     )
 
-from jinja2 import Environment
+from jinja2 import Environment, FileSystemBytecodeCache
 from jinja2.exceptions import TemplateNotFound
 from jinja2.loaders import FileSystemLoader
 from jinja2.utils import (
     import_string,
-    open_if_exists
+    open_if_exists,
     )
 
 from pyramid_jinja2.compat import reraise
@@ -25,19 +25,6 @@ from pyramid.resource import abspath_from_resource_spec
 from pyramid.settings import asbool
 from pyramid import i18n
 from pyramid.threadlocal import get_current_request
-
-
-class TemplateRenderingError(Exception):
-
-    def __init__(self, template, message):
-        self.template = template
-        self.message = message
-
-    def __str__(self):
-        s = self.template
-        if self.message:
-            s += ': ' + self.message
-        return s
 
 
 class IJinja2Environment(Interface):
@@ -67,14 +54,13 @@ def parse_filters(filters):
     return result
 
 
-def parse_extensions(extensions):
+def parse_multiline(extensions):
     if isinstance(extensions, string_types):
         extensions = splitlines(extensions)
     return list(extensions) # py3
 
 
 class FileInfo(object):
-
     open_if_exists = staticmethod(open_if_exists)
     getmtime = staticmethod(os.path.getmtime)
 
@@ -97,19 +83,9 @@ class FileInfo(object):
         finally:
             f.close()
 
-        try:
-            if not isinstance(data, text_type):
-                data = data.decode(self.encoding)
-            self._contents = data
-        except UnicodeDecodeError:
-            try:
-                cls, orig, trace = sys.exc_info() # py 2.5-3.2 compat
-                ex = TemplateRenderingError(
-                    self.filename,
-                    'problem handling unicode decoding: ' + str(orig))
-                reraise((ex, None, trace))
-            finally: # prevent memory leak
-                del cls, orig, trace
+        if not isinstance(data, text_type):
+            data = data.decode(self.encoding)
+        self._contents = data
 
     @property
     def contents(self):
@@ -197,24 +173,60 @@ class SmartAssetSpecLoader(FileSystemLoader):
             raise TemplateNotFound(name=ex.name, message=message)
 
 
-def directory_loader_factory(settings):
-    input_encoding = settings.get('jinja2.input_encoding', 'utf-8')
-    directories = settings.get('jinja2.directories') or ''
-    if isinstance(directories, string_types):
-        directories = splitlines(directories)
-    directories = [abspath_from_resource_spec(d) for d in directories]
-    loader = SmartAssetSpecLoader(
-        directories, encoding=input_encoding,
-        debug=asbool(settings.get('debug_templates', False)))
-    return loader
-
-
 def _get_or_build_default_environment(registry):
     environment = registry.queryUtility(IJinja2Environment)
     if environment is not None:
         return environment
 
-    _setup_environment(registry)
+    settings = registry.settings
+    kw = {}
+    package = _caller_package(('pyramid_jinja2', 'jinja2', 'pyramid.config'))
+    reload_templates = asbool(settings.get('reload_templates', False))
+    autoescape = asbool(settings.get('jinja2.autoescape', True))
+    domain = settings.get('jinja2.i18n.domain', 'messages')
+    debug = asbool(settings.get('debug_templates', False))
+    input_encoding = settings.get('jinja2.input_encoding', 'utf-8')
+
+    extensions = parse_multiline(settings.get('jinja2.extensions', ''))
+    if 'jinja2.ext.i18n' not in extensions:
+        extensions.append('jinja2.ext.i18n')
+
+    directories = parse_multiline(settings.get('jinja2.directories') or '')
+    directories = [abspath_from_resource_spec(d, package) for d in directories]
+    loader = SmartAssetSpecLoader(
+        directories,
+        encoding=input_encoding,
+        debug=debug)
+
+    # bytecode caching
+    bytecode_caching = asbool(settings.get('jinja2.bytecode_caching', True))
+    bytecode_caching_directory = settings.get('jinja2.bytecode_caching_directory', None)
+    if bytecode_caching:
+        kw['bytecode_cache'] = FileSystemBytecodeCache(bytecode_caching_directory)
+
+    defaults_prefix = 'jinja2.defaults.'
+    for k, v in settings.items():
+        if k.startswith(defaults_prefix):
+            kw[k[len(defaults_prefix):]] = v
+
+    environment = Environment(loader=loader,
+                              auto_reload=reload_templates,
+                              autoescape=autoescape,
+                              extensions=extensions,
+                              **kw)
+
+    # register pyramid i18n functions
+    wrapper = GetTextWrapper(domain=domain)
+    environment.install_gettext_callables(wrapper.gettext, wrapper.ngettext)
+
+    # register global repository for templates
+    if package is not None:
+        environment._default_package = package.__name__
+
+    filters = parse_filters(settings.get('jinja2.filters', ''))
+    environment.filters.update(filters)
+
+    registry.registerUtility(environment, IJinja2Environment)
     return registry.queryUtility(IJinja2Environment)
 
 
@@ -236,38 +248,7 @@ class GetTextWrapper(object):
                                         domain=self.domain)
 
 
-def _setup_environment(registry):
-    settings = registry.settings
-    reload_templates = asbool(settings.get('reload_templates', False))
-    autoescape = asbool(settings.get('jinja2.autoescape', True))
-    domain = settings.get('jinja2.i18n.domain', 'messages')
-    extensions = _get_extensions(registry)
-    filters = parse_filters(settings.get('jinja2.filters', ''))
-
-    defaults_prefix = 'jinja2.defaults.'
-    defaults_kwargs = {k[len(defaults_prefix):]: v
-                       for k, v in settings.items()
-                       if k.startswith(defaults_prefix)}
-    environment = Environment(loader=directory_loader_factory(settings),
-                              auto_reload=reload_templates,
-                              autoescape=autoescape,
-                              extensions=extensions,
-                              **defaults_kwargs)
-    wrapper = GetTextWrapper(domain=domain)
-    environment.install_gettext_callables(wrapper.gettext, wrapper.ngettext)
-    environment.pyramid_jinja2_extensions = extensions
-    package = _caller_package(('pyramid_jinja2', 'jinja2', 'pyramid.config'))
-    if package is not None:
-        environment._default_package = package.__name__
-    environment.filters.update(filters)
-    registry.registerUtility(environment, IJinja2Environment)
-
-
-def renderer_factory(info):
-    environment = _get_or_build_default_environment(info.registry)
-    return Jinja2TemplateRenderer(info, environment)
-
-
+@implementer(ITemplateRenderer)
 class Jinja2TemplateRenderer(object):
     '''Renderer for a jinja2 template'''
     template = None
@@ -281,7 +262,20 @@ class Jinja2TemplateRenderer(object):
 
     @property
     def template(self):
-        return self.environment.get_template(self.info.name)
+        # get template based on searchpaths, then try relavtive one
+        info = self.info
+        name = info.name
+        name_with_package = None
+        if ':' not in name and getattr(info, 'package', None) is not None:
+            package = self.info.package
+            name_with_package = '%s:%s' % (package.__name__, name)
+        try:
+            return self.environment.get_template(name)
+        except TemplateNotFound:
+            if name_with_package != None:
+                return self.environment.get_template(name_with_package)
+            else:
+                raise
 
     def __call__(self, value, system):
         try:
@@ -292,8 +286,11 @@ class Jinja2TemplateRenderer(object):
                              'as value: %s' % str(ex))
         return self.template.render(system)
 
-Jinja2TemplateRenderer = \
-        implementer(ITemplateRenderer)(Jinja2TemplateRenderer) # 2.5 compat, ugh
+
+def renderer_factory(info):
+    environment = _get_or_build_default_environment(info.registry)
+    return Jinja2TemplateRenderer(info, environment)
+
 
 def add_jinja2_search_path(config, searchpath):
     """
@@ -311,10 +308,10 @@ def add_jinja2_search_path(config, searchpath):
     """
     registry = config.registry
     env = _get_or_build_default_environment(registry)
-    if isinstance(searchpath, string_types):
-        searchpath = [x.strip() for x in searchpath.split('\n') if x.strip()]
+    searchpath = parse_multiline(searchpath)
+
     for d in searchpath:
-        env.loader.searchpath.append(abspath_from_resource_spec(d))
+        env.loader.searchpath.append(abspath_from_resource_spec(d, config.package_name))
 
 
 def add_jinja2_extension(config, ext):
@@ -330,27 +327,8 @@ def add_jinja2_extension(config, ext):
     It will add the Jinja2 extension passed as ``ext`` to the current
     ``jinja2.environment.Environment`` used by :mod:`pyramid_jinja2`.
     """
-    registry = config.registry
-
-    lst = _get_extensions(config)
-    if ext not in lst:
-        lst.append(ext)
-        environment = registry.queryUtility(IJinja2Environment)
-        if environment is not None:
-            registry.unregisterUtility(environment,
-                                       provided=IJinja2Environment)
-            _setup_environment(registry)
-
-
-def _get_extensions(config_or_registry):
-    registry = getattr(config_or_registry, 'registry', config_or_registry)
-    settings = registry.settings
-    settings['jinja2.extensions'] = parse_extensions(
-        settings.get('jinja2.extensions', ''))
-    exts = settings['jinja2.extensions']
-    if 'jinja2.ext.i18n' not in exts:
-        exts.append('jinja2.ext.i18n')
-    return exts
+    env = _get_or_build_default_environment(config.registry)
+    env.add_extension(ext)
 
 def get_jinja2_environment(config):
     """

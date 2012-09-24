@@ -44,6 +44,8 @@ Once activated either of these says, the following happens:
 
 #) The :func:`pyramid_jinja2.get_jinja2_environment` directive is added to the
    :term:`configurator` instance.
+
+#) `jinja2.Environment` is constructed and registered globally.
    
 To setup the jinja2 search path either one of the following steps must be taken:
 
@@ -61,21 +63,50 @@ To setup the jinja2 search path either one of the following steps must be taken:
 .. warning::
 
     If you do not explicitly configure your jinja2 search path it will
-    default to the root of your application.  If configured in this way all
-    subsequent paths will need to be specified relative to the root of your
-    application's package.  For example:
+    default to the root of your application. If the specified template
+    is not found in the root of your application and you did not specify
+    a package on the template path it will then try to load the template
+    path relative to the module's caller package. For example:
 
     Without the search path configured:
 
     .. code-block:: text
 
         @view_config(renderer='templates/mytemplate.jinja2')
-  
+    
     With the search path configured:
-      
-    .. code-block:: text 
-   
+    
+    .. code-block:: text
+    
        @view_config(renderer='mytemplate.jinja2')
+    
+    If you view module is in app.module.view and your template is
+    under app/module/templates/mytemplate.jinja2 you can access
+    that asset in a few different ways.
+    
+    Using the full path:
+    
+    .. code-block:: text
+    
+      @view_config(renderer="module/templates/mytemplate.jinja2")
+    
+    Using the package:
+    
+    .. code-block:: text
+    
+      @view_config(renderer="app.module:templates/mytemplate.jinja2")
+    
+    Using the relative path to current package:
+    
+    .. code-block:: text
+    
+      @view_config(renderer="templates/mytemplate.jinja2")
+    
+    You need to be careful when using relative paths though, if
+    there is an app/templates/mytemplate.jinja2 this will be
+    used instead as jinja2 lookup will first try the path relative
+    to the root of the app and then it will try the path relative
+    to the current package.
 
 Usage
 =====
@@ -189,18 +220,35 @@ jinja2.input_encoding
 jinja2.autoescape
 
   ``true`` or ``false`` representing whether Jinja2 will autoescape rendered
-  blocks.
+  blocks. Defaults to ``true``.
 
 jinja2.extensions
 
   A list of extension objects or a newline-delimited set of dotted import
-  locations where each line represents an extension.
+  locations where each line represents an extension. `jinja2.ext.i18n` is
+  automatically activated.
+ 
+jinja2.i18n.domain
+
+  Pyramid domain for translations. See
+  http://pyramid.readthedocs.org/en/latest/glossary.html#term-translation-domain 
 
 jinja2.filters
 
   A dictionary mapping filter name to filter object, or a newline-delimted
   string with each line in the format ``name = dotted.name.to.filter``
   representing Jinja2 filters.
+
+jinja2.bytecode_caching
+  
+  ``true`` or ``false`` to enable filesystem bytecode caching. Defaults to ``true``.
+  See http://jinja.pocoo.org/docs/api/?highlight=bytecode#bytecode-cache
+
+jinja2.bytecode_caching_directory
+
+  Absolute path to directory to store bytecode caching files. Defaults to
+  temporary directory. See
+  http://jinja.pocoo.org/docs/api/?highlight=bytecode#jinja2.FileSystemBytecodeCache
 
 
 Jinja2 Filters

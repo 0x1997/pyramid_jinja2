@@ -17,7 +17,7 @@ import os
 from setuptools import setup, find_packages
 
 here = os.path.abspath(os.path.dirname(__file__))
-README = open(os.path.join(here, 'README.txt')).read()
+README = open(os.path.join(here, 'README.rst')).read()
 CHANGES = open(os.path.join(here, 'CHANGES.txt')).read()
 
 requires = [
@@ -30,18 +30,19 @@ try:
 except ImportError:
     requires.append('wsgiref')
 
-testing_extras = ['WebTest', 'nose', 'coverage']
+testing_extras = ['WebTest', 'nose>=1.2.0', 'coverage']
 docs_extras = ['Sphinx']
 
 setup(name='pyramid_jinja2',
-      version='1.3',
+      version='1.4.2.dev0',
       description='Jinja2 template bindings for the Pyramid web framework',
       long_description=README + '\n\n' + CHANGES,
       classifiers=[
         "Intended Audience :: Developers",
+        "Programming Language :: Python :: Implementation :: CPython",
+        "Programming Language :: Python :: Implementation :: PyPy",
         "Programming Language :: Python",
         "Programming Language :: Python :: 2",
-        "Programming Language :: Python :: 2.5",
         "Programming Language :: Python :: 2.6",
         "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
@@ -52,6 +53,8 @@ setup(name='pyramid_jinja2',
       keywords='web wsgi pylons pyramid',
       author="Rocky Burt",
       author_email="pylons-discuss@googlegroups.com",
+      maintainer="Domen Kozar",
+      maintainer_email="domen@dev.si",
       url="https://github.com/Pylons/pyramid_jinja2",
       license="BSD-derived (http://www.repoze.org/LICENSE.txt)",
       packages=find_packages(),

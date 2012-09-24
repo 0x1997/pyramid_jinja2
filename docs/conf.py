@@ -56,7 +56,7 @@ if 'sphinx-build' in ' '.join(sys.argv): # protect against dumb importers
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ['sphinx.ext.autodoc']
+extensions = ['sphinx.ext.autodoc', 'sphinx.ext.intersphinx']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['.templates']
@@ -75,7 +75,8 @@ copyright = '2011, Agendaless Consulting <chrism@plope.com>'
 # other places throughout the built documents.
 #
 # The short X.Y version.
-version = '1.3'
+import pkg_resources
+version = pkg_resources.get_distribution(project).version
 # The full version, including alpha/beta/rc tags.
 release = version
 
